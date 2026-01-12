@@ -1,0 +1,74 @@
+# Sample configuration file for go-ups
+# Copy this to config.yml and adjust the values as needed
+
+devices:
+  - type: apcupsd
+    name: my-ups
+    host: localhost
+    port: 3551
+    username: ""  # Not used for APCUPSD
+    password: ""  # Not used for APCUPSD
+    selected_attributes:
+      - Status
+      - BatteryChargePercent
+      - TimeLeft
+      - LineVoltage
+      - LoadPercent
+      - BatteryVoltage
+      - OutputVoltage
+      - InternalTemp
+      - MinimumBatteryChargePercent
+      - NominalInputVoltage
+      - NominalPower
+      - Firmware
+      - Model
+      - SerialNumber
+      - BatteryDate
+      - NominalBatteryVoltage
+      - Hostname
+      - Version
+      - UPSName
+      - Cable
+      - Driver
+      - UPSMode
+      - StartTime
+      - MinimumTimeLeft
+      - MaximumTime
+      - Sense
+      - LowTransferVoltage
+      - HighTransferVoltage
+      - AlarmDel
+      - LastTransfer
+      - NumberTransfers
+      - XOnBattery
+      - TimeOnBattery
+      - CumulativeTimeOnBattery
+      - XOffBattery
+      - LastSelftest
+      - Selftest
+      - StatusFlags
+
+  - type: nut
+    name: nut-ups
+    host: localhost
+    port: 3493
+    username: upsmon
+    password: your_password_here
+    selected_attributes:
+      - battery.charge
+      - battery.runtime
+      - battery.voltage
+      - input.voltage
+      - output.voltage
+      - ups.load
+      - ups.status
+      - ups.temperature
+
+logging:
+  level: info
+  output: stdout
+  source: false
+
+server:
+  host: 0.0.0.0
+  port: 8080
