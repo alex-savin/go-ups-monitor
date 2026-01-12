@@ -344,7 +344,7 @@ func (s *Server) handleDeleteDevice(w http.ResponseWriter, r *http.Request) {
 	name := r.URL.Query().Get("name")
 	if name == "" {
 		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte(`{"error":"name required"}`))
+		_, _ = w.Write([]byte(`{"error":"name required"}`))
 		return
 	}
 	s.configMu.Lock()
@@ -354,14 +354,14 @@ func (s *Server) handleDeleteDevice(w http.ResponseWriter, r *http.Request) {
 			s.configMu.Unlock()
 			s.logger.Error("Failed to save config", "error", err)
 			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte(`{"error":"failed to save config"}`))
+			_, _ = w.Write([]byte(`{"error":"failed to save config"}`))
 			return
 		}
 	}
 	s.configMu.Unlock()
 	if !removed {
 		w.WriteHeader(http.StatusNotFound)
-		w.Write([]byte(`{"error":"device not found"}`))
+		_, _ = w.Write([]byte(`{"error":"device not found"}`))
 		return
 	}
 	if s.monitor != nil {
