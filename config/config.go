@@ -189,7 +189,7 @@ func LoadConfigFrom(path string) (*Config, error) {
 		}
 		return nil, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	var config Config
 	decoder := yaml.NewDecoder(file)
 	err = decoder.Decode(&config)
@@ -232,7 +232,7 @@ func SaveConfigTo(path string, cfg *Config) error {
 		Devices []Device `yaml:"devices"`
 	}{Devices: cfg.Devices}
 	if err := encoder.Encode(slim); err != nil {
-		file.Close()
+		_ = file.Close()
 		return err
 	}
 	if err := file.Close(); err != nil {
@@ -421,7 +421,7 @@ func executeNutCommand(cmd UPSCommand, device Device) CommandResult {
 		result.Message = fmt.Sprintf("Failed to connect to NUT server: %v", err)
 		return result
 	}
-	defer client.Disconnect()
+	defer func() { _, _ = client.Disconnect() }()
 
 	// Authenticate if credentials provided
 	if device.Username != "" {

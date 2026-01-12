@@ -10,6 +10,9 @@ import (
 	"time"
 )
 
+// numericPattern is a compiled regexp for matching numeric values.
+var numericPattern = regexp.MustCompile(`^-?[0-9.]+$`)
+
 // Client contains information about the NUT server as well as the connection.
 type NutClient struct {
 	Version         string
@@ -36,8 +39,8 @@ func NutConnect(hostname string, _port ...int) (NutClient, error) {
 		Hostname: conn.RemoteAddr(),
 		conn:     conn,
 	}
-	client.GetVersion()
-	client.GetNetworkProtocolVersion()
+	_, _ = client.GetVersion()
+	_, _ = client.GetNetworkProtocolVersion()
 	return client, nil
 }
 
@@ -55,7 +58,7 @@ func (c *NutClient) Disconnect() (bool, error) {
 
 // ReadResponse is a convenience function for reading newline delimited responses.
 func (c *NutClient) ReadResponse(endLine string, multiLineResponse bool) (resp []string, err error) {
-	c.conn.SetReadDeadline(time.Now().Add(time.Second * 2))
+	_ = c.conn.SetReadDeadline(time.Now().Add(time.Second * 2))
 	connbuff := bufio.NewReader(c.conn)
 	response := []string{}
 
@@ -68,7 +71,7 @@ func (c *NutClient) ReadResponse(endLine string, multiLineResponse bool) (resp [
 			cleanLine := strings.TrimSuffix(line, "\n")
 			lines := strings.Split(cleanLine, "\n")
 			response = append(response, lines...)
-			if line == endLine || multiLineResponse == false {
+			if line == endLine || !multiLineResponse {
 				break
 			}
 		}
@@ -198,8 +201,7 @@ func (u *NutUPS) GetVariables() ([]NutVariable, error) {
 		newVar.Value = splitLine[1]
 
 		// Type conversion similar to original
-		matched, _ := regexp.MatchString(`^-?[0-9\.]+$`, splitLine[1])
-		if matched {
+		if numericPattern.MatchString(splitLine[1]) {
 			if strings.Count(splitLine[1], ".") == 1 {
 				converted, err := strconv.ParseFloat(splitLine[1], 64)
 				if err == nil {

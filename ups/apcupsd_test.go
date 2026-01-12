@@ -250,7 +250,7 @@ func TestNISReadWriteCloser(t *testing.T) {
 	responseRWC := newNISReadWriteCloser(responseBuf)
 
 	// Write response data with length prefix
-	responseRWC.Write(responseData)
+	_, _ = responseRWC.Write(responseData)
 
 	// Now read it back
 	readBuf := make([]byte, len(responseData))

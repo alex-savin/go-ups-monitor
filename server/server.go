@@ -187,7 +187,7 @@ func (s *Server) statusBroadcaster(ctx context.Context) {
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{"status": "healthy", "timestamp": "` + time.Now().Format(time.RFC3339) + `"}`))
+	_, _ = w.Write([]byte(`{"status": "healthy", "timestamp": "` + time.Now().Format(time.RFC3339) + `"}`))
 }
 
 func (s *Server) handleStatuses(w http.ResponseWriter, r *http.Request) {
@@ -218,13 +218,13 @@ func (s *Server) handleExecuteCommand(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
-		w.Write([]byte(`{"error":"method not allowed"}`))
+		_, _ = w.Write([]byte(`{"error":"method not allowed"}`))
 		return
 	}
 	var cmd config.UPSCommand
 	if err := json.NewDecoder(r.Body).Decode(&cmd); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte(`{"error":"invalid request body"}`))
+		_, _ = w.Write([]byte(`{"error":"invalid request body"}`))
 		return
 	}
 	if cmd.Device == "" || cmd.Command == "" {
@@ -241,7 +241,7 @@ func (s *Server) handleExecuteCommand(w http.ResponseWriter, r *http.Request) {
 	if !result.Success {
 		w.WriteHeader(http.StatusBadRequest)
 	}
-	json.NewEncoder(w).Encode(result)
+	_ = json.NewEncoder(w).Encode(result)
 }
 
 func (s *Server) handleListDevices(w http.ResponseWriter, r *http.Request) {
@@ -337,7 +337,7 @@ func (s *Server) handleAddDevice(ctx context.Context, w http.ResponseWriter, r *
 		s.monitor.StartDevice(ctx, device)
 	}
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(device)
+	_ = json.NewEncoder(w).Encode(device)
 }
 
 func (s *Server) handleDeleteDevice(w http.ResponseWriter, r *http.Request) {
@@ -381,7 +381,7 @@ func (s *Server) handleTestDevice(w http.ResponseWriter, r *http.Request) {
 	var req AddDeviceRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "invalid request"})
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "invalid request"})
 		return
 	}
 	if req.Name == "" || req.Host == "" || req.Type == "" {
@@ -432,9 +432,9 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 	s.logger.Info("WebSocket upgrade succeeded", "remote", r.RemoteAddr, "origin", r.Header.Get("Origin"))
 	conn.SetReadLimit(s.cfg.MaxMessageSize)
-	conn.SetReadDeadline(time.Now().Add(s.cfg.ReadTimeout))
+	_ = conn.SetReadDeadline(time.Now().Add(s.cfg.ReadTimeout))
 	conn.SetPongHandler(func(string) error {
-		conn.SetReadDeadline(time.Now().Add(s.cfg.ReadTimeout))
+		_ = conn.SetReadDeadline(time.Now().Add(s.cfg.ReadTimeout))
 		return nil
 	})
 	reason := "normal"
@@ -454,7 +454,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 				if err := conn.WriteControl(websocket.PingMessage, []byte("ping"), deadline); err != nil {
 					s.logger.Warn("WebSocket ping failed", "error", err)
 					reason = "ping_failed"
-					conn.Close()
+					_ = conn.Close()
 					return
 				}
 			}
@@ -483,13 +483,13 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			reason = "marshal_failed"
 			return
 		}
-		conn.SetWriteDeadline(time.Now().Add(s.cfg.WriteTimeout))
+		_ = conn.SetWriteDeadline(time.Now().Add(s.cfg.WriteTimeout))
 		if writeErr := conn.WriteMessage(websocket.TextMessage, payload); writeErr != nil {
 			s.logger.Error("Failed to send initial status", "error", writeErr)
 			reason = "write_initial_failed"
 			return
 		}
-		conn.SetWriteDeadline(time.Time{})
+		_ = conn.SetWriteDeadline(time.Time{})
 	}
 	for {
 		var cmd config.UPSCommand
@@ -509,13 +509,13 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		s.logger.Info("WS received command", "remote", r.RemoteAddr, "id", cmd.ID, "device", cmd.Device, "command", cmd.Command)
 		result := config.ExecuteCommand(cmd, s.appConfig.Devices)
 		s.logger.Info("WS send command result", "remote", r.RemoteAddr, "id", cmd.ID, "device", cmd.Device, "success", result.Success)
-		conn.SetWriteDeadline(time.Now().Add(s.cfg.WriteTimeout))
+		_ = conn.SetWriteDeadline(time.Now().Add(s.cfg.WriteTimeout))
 		if err := conn.WriteJSON(result); err != nil {
 			s.logger.Error("Failed to send command result", "error", err)
 			reason = "write_failed"
 			return
 		}
-		conn.SetWriteDeadline(time.Time{})
+		_ = conn.SetWriteDeadline(time.Time{})
 	}
 }
 
@@ -550,7 +550,7 @@ func (h *wsHub) remove(conn *websocket.Conn) {
 	h.mu.Lock()
 	delete(h.clients, conn)
 	h.mu.Unlock()
-	conn.Close()
+	_ = conn.Close()
 }
 
 func (h *wsHub) broadcast(payload []byte) {
@@ -558,12 +558,12 @@ func (h *wsHub) broadcast(payload []byte) {
 	defer h.mu.Unlock()
 	h.last = payload
 	for conn := range h.clients {
-		conn.SetWriteDeadline(time.Now().Add(h.cfg.WriteTimeout))
+		_ = conn.SetWriteDeadline(time.Now().Add(h.cfg.WriteTimeout))
 		if err := conn.WriteMessage(websocket.TextMessage, payload); err != nil {
-			conn.Close()
+			_ = conn.Close()
 			delete(h.clients, conn)
 		}
-		conn.SetWriteDeadline(time.Time{})
+		_ = conn.SetWriteDeadline(time.Time{})
 	}
 }
 
@@ -573,9 +573,9 @@ func (h *wsHub) sendLast(conn *websocket.Conn) error {
 	if h.last == nil {
 		return nil
 	}
-	conn.SetWriteDeadline(time.Now().Add(h.cfg.WriteTimeout))
+	_ = conn.SetWriteDeadline(time.Now().Add(h.cfg.WriteTimeout))
 	err := conn.WriteMessage(websocket.TextMessage, h.last)
-	conn.SetWriteDeadline(time.Time{})
+	_ = conn.SetWriteDeadline(time.Time{})
 	return err
 }
 
@@ -583,12 +583,12 @@ func (h *wsHub) closeAll() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	for conn := range h.clients {
-		conn.WriteControl(
+		_ = conn.WriteControl(
 			websocket.CloseMessage,
 			websocket.FormatCloseMessage(websocket.CloseGoingAway, "server shutdown"),
 			time.Now().Add(h.cfg.WriteTimeout),
 		)
-		conn.Close()
+		_ = conn.Close()
 		delete(h.clients, conn)
 	}
 }

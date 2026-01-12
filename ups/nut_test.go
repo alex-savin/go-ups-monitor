@@ -1,12 +1,8 @@
 package ups
 
 import (
-	"bytes"
-	"net"
-	"regexp"
 	"strings"
 	"testing"
-	"time"
 )
 
 func TestNutConnect(t *testing.T) {
@@ -129,30 +125,20 @@ func TestVariableTypeConversion(t *testing.T) {
 			var newVar NutVariable
 			newVar.Value = tt.input
 
-			// Test number conversion
-			matched, _ := regexp.MatchString(`^-?[0-9\.]+$`, tt.input)
-			if matched {
-				if strings.Count(tt.input, ".") == 1 {
-					// Test float conversion
-					if tt.varType == "FLOAT_64" {
-						// This would be the actual conversion logic
-					}
-				} else {
-					// Test int conversion
-					if tt.varType == "INTEGER" {
-						// This would be the actual conversion logic
-					}
-				}
-			}
-
-			// Test boolean conversion
-			if tt.input == "enabled" && tt.expected == true {
+			// Test type detection based on input value
+			switch {
+			case tt.input == "enabled":
 				newVar.Value = true
 				newVar.Type = "BOOLEAN"
-			}
-			if tt.input == "disabled" && tt.expected == false {
+			case tt.input == "disabled":
 				newVar.Value = false
 				newVar.Type = "BOOLEAN"
+			case numericPattern.MatchString(tt.input):
+				if strings.Count(tt.input, ".") == 1 {
+					newVar.Type = "FLOAT_64"
+				} else {
+					newVar.Type = "INTEGER"
+				}
 			}
 
 			// Default to STRING
@@ -174,39 +160,3 @@ func TestVariableTypeConversion(t *testing.T) {
 	}
 }
 
-// Mock TCP connection for testing
-type mockTCPConn struct {
-	data *bytes.Buffer
-}
-
-func (m *mockTCPConn) Read(b []byte) (int, error) {
-	return m.data.Read(b)
-}
-
-func (m *mockTCPConn) Write(b []byte) (int, error) {
-	return m.data.Write(b)
-}
-
-func (m *mockTCPConn) Close() error {
-	return nil
-}
-
-func (m *mockTCPConn) LocalAddr() net.Addr {
-	return nil
-}
-
-func (m *mockTCPConn) RemoteAddr() net.Addr {
-	return nil
-}
-
-func (m *mockTCPConn) SetDeadline(t time.Time) error {
-	return nil
-}
-
-func (m *mockTCPConn) SetReadDeadline(t time.Time) error {
-	return nil
-}
-
-func (m *mockTCPConn) SetWriteDeadline(t time.Time) error {
-	return nil
-}

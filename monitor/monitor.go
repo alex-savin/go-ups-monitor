@@ -115,10 +115,10 @@ func (m *Monitor) pollDevice(ctx context.Context, device config.Device) {
 	var nutClient *ups.NutClient
 	defer func() {
 		if apcClient != nil {
-			apcClient.Close()
+			_ = apcClient.Close()
 		}
 		if nutClient != nil {
-			nutClient.Disconnect()
+			_, _ = nutClient.Disconnect()
 		}
 		m.logger.Info("Device poller stopped", "name", device.Name)
 	}()
@@ -324,7 +324,7 @@ func FetchApcupsdStatus(device config.Device) (*config.UPSStatus, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 	return GetApcupsdStatus(client, device)
 }
 
@@ -334,7 +334,7 @@ func FetchNutStatus(device config.Device) (*config.UPSStatus, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer client.Disconnect()
+	defer func() { _, _ = client.Disconnect() }()
 	return GetNutStatus(&client, device)
 }
 

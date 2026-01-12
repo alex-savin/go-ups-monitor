@@ -1,11 +1,8 @@
 package config
 
 import (
-	"fmt"
 	"os"
 	"testing"
-
-	"github.com/alex-savin/go-ups-monitor/ups"
 )
 
 func TestLoadConfig(t *testing.T) {
@@ -35,23 +32,23 @@ server:
 	if err != nil {
 		t.Fatalf("Failed to create temp file: %v", err)
 	}
-	defer os.Remove(tmpFile.Name())
+	defer func() { _ = os.Remove(tmpFile.Name()) }()
 
 	if _, err := tmpFile.WriteString(configContent); err != nil {
 		t.Fatalf("Failed to write config: %v", err)
 	}
-	tmpFile.Close()
+	_ = tmpFile.Close()
 
 	// Change to temp directory to load the config
 	oldWd, _ := os.Getwd()
-	os.Chdir(tmpFile.Name()[:len(tmpFile.Name())-len("config_test_*.yml")+12]) // Go to temp dir
-	defer os.Chdir(oldWd)
+	_ = os.Chdir(tmpFile.Name()[:len(tmpFile.Name())-len("config_test_*.yml")+12]) // Go to temp dir
+	defer func() { _ = os.Chdir(oldWd) }()
 
 	// Copy config to config.yml in temp dir
 	if err := os.WriteFile("config.yml", []byte(configContent), 0644); err != nil {
 		t.Fatalf("Failed to write config.yml: %v", err)
 	}
-	defer os.Remove("config.yml")
+	defer func() { _ = os.Remove("config.yml") }()
 
 	config, err := LoadConfig()
 	if err != nil {
@@ -332,30 +329,5 @@ func TestNutMapping(t *testing.T) {
 	}
 }
 
-// Mock NUT client for testing
-type mockNutClient struct {
-	connected bool
-}
-
-func (m *mockNutClient) SendCommand(cmd string) ([]string, error) {
-	if !m.connected {
-		return nil, fmt.Errorf("connection failed")
-	}
-	return []string{"OK"}, nil
-}
-
-func (m *mockNutClient) Disconnect() (bool, error) {
-	m.connected = false
-	return true, nil
-}
-
-func (m *mockNutClient) Authenticate(username, password string) ([]string, error) {
-	return []string{"OK"}, nil
-}
-
-func (m *mockNutClient) GetUPSList() ([]ups.NutUPS, error) {
-	return []ups.NutUPS{}, nil
-}
-
-// Note: This test would require mocking the ups.NutConnect function
-// For now, we'll skip integration tests that require network connections
+// Note: Integration tests that require network connections are skipped
+// To test NUT command execution, mock the ups.NutConnect function
