@@ -174,11 +174,11 @@ func (m *Monitor) pollDevice(ctx context.Context, device config.Device) {
 			}
 			// Close failed connections
 			if apcClient != nil {
-				apcClient.Close()
+				_ = apcClient.Close()
 				apcClient = nil
 			}
 			if nutClient != nil {
-				nutClient.Disconnect()
+				_, _ = nutClient.Disconnect()
 				nutClient = nil
 			}
 		} else {

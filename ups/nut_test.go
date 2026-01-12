@@ -147,11 +147,12 @@ func TestVariableTypeConversion(t *testing.T) {
 			}
 
 			// Verify the conversion worked as expected
-			if tt.input == "enabled" || tt.input == "disabled" {
+			switch tt.input {
+			case "enabled", "disabled":
 				if newVar.Type != "BOOLEAN" {
 					t.Errorf("Expected BOOLEAN type for %s, got %s", tt.input, newVar.Type)
 				}
-			} else if tt.input == "some_string" {
+			case "some_string":
 				if newVar.Type != "STRING" {
 					t.Errorf("Expected STRING type for %s, got %s", tt.input, newVar.Type)
 				}

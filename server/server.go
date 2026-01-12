@@ -229,7 +229,7 @@ func (s *Server) handleExecuteCommand(w http.ResponseWriter, r *http.Request) {
 	}
 	if cmd.Device == "" || cmd.Command == "" {
 		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte(`{"error":"device and command are required"}`))
+		_, _ = w.Write([]byte(`{"error":"device and command are required"}`))
 		return
 	}
 	s.configMu.Lock()
@@ -285,12 +285,12 @@ func (s *Server) handleAddDevice(ctx context.Context, w http.ResponseWriter, r *
 	var req AddDeviceRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte(`{"error":"invalid request"}`))
+		_, _ = w.Write([]byte(`{"error":"invalid request"}`))
 		return
 	}
 	if req.Name == "" || req.Host == "" || req.Type == "" {
 		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte(`{"error":"missing required fields"}`))
+		_, _ = w.Write([]byte(`{"error":"missing required fields"}`))
 		return
 	}
 	device := config.Device{
@@ -386,7 +386,7 @@ func (s *Server) handleTestDevice(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Name == "" || req.Host == "" || req.Type == "" {
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "missing required fields"})
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "missing required fields"})
 		return
 	}
 	device := config.Device{
@@ -405,7 +405,7 @@ func (s *Server) handleTestDevice(w http.ResponseWriter, r *http.Request) {
 			device.Port = 3493
 		default:
 			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "unsupported device type"})
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "unsupported device type"})
 			return
 		}
 	}
@@ -413,7 +413,7 @@ func (s *Server) handleTestDevice(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.logger.Warn("Device test failed", "name", device.Name, "type", device.Type, "error", err)
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": err.Error()})
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": err.Error()})
 		return
 	}
 	w.WriteHeader(http.StatusOK)

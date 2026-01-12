@@ -272,7 +272,7 @@ func TestNewClient(t *testing.T) {
 	client := New(buf)
 
 	if client == nil {
-		t.Error("Expected client to be created")
+		t.Fatal("Expected client to be created")
 	}
 	if client.rwc == nil {
 		t.Error("Expected rwc to be set")
