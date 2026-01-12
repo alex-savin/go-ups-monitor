@@ -110,16 +110,72 @@ func (m *Monitor) ActiveDevices() []string {
 	return names
 }
 
+// deviceConnections holds client connections for a device.
+type deviceConnections struct {
+	apcClient *ups.Client
+	nutClient *ups.NutClient
+}
+
+// closeConnections closes all active client connections.
+func (dc *deviceConnections) closeConnections() {
+	if dc.apcClient != nil {
+		_ = dc.apcClient.Close()
+		dc.apcClient = nil
+	}
+	if dc.nutClient != nil {
+		_, _ = dc.nutClient.Disconnect()
+		dc.nutClient = nil
+	}
+}
+
+// pollDeviceOnce attempts a single poll of the device and returns the status or error.
+func (m *Monitor) pollDeviceOnce(device config.Device, dc *deviceConnections) (*config.UPSStatus, error) {
+	var err error
+
+	switch device.Type {
+	case "apcupsd":
+		if dc.apcClient == nil {
+			m.logger.Debug("Connecting to apcupsd", "name", device.Name, "host", device.Host, "port", device.Port)
+			dc.apcClient, err = ups.Dial("tcp", fmt.Sprintf("%s:%d", device.Host, device.Port))
+			if err != nil {
+				return nil, err
+			}
+			m.logger.Debug("Connected to apcupsd", "name", device.Name)
+		}
+		return GetApcupsdStatus(dc.apcClient, device)
+
+	case "nut":
+		if dc.nutClient == nil {
+			m.logger.Debug("Connecting to NUT", "name", device.Name, "host", device.Host, "port", device.Port)
+			c, connErr := ups.NutConnect(device.Host, device.Port)
+			if connErr != nil {
+				return nil, connErr
+			}
+			dc.nutClient = &c
+			m.logger.Debug("Connected to NUT", "name", device.Name)
+		}
+		return GetNutStatus(dc.nutClient, device)
+
+	default:
+		return nil, fmt.Errorf("unsupported device type: %s", device.Type)
+	}
+}
+
+// calculateBackoff computes the next backoff duration with jitter.
+func (m *Monitor) calculateBackoff(currentBackoff time.Duration) time.Duration {
+	backoff := minDuration(currentBackoff*2, m.cfg.MaxBackoff)
+	jitter := time.Duration(float64(backoff) * m.cfg.JitterFactor * (rand.Float64()*2 - 1))
+	backoff += jitter
+	if backoff < m.cfg.PollInterval {
+		return m.cfg.PollInterval
+	}
+	return backoff
+}
+
 func (m *Monitor) pollDevice(ctx context.Context, device config.Device) {
-	var apcClient *ups.Client
-	var nutClient *ups.NutClient
+	dc := &deviceConnections{}
 	defer func() {
-		if apcClient != nil {
-			_ = apcClient.Close()
-		}
-		if nutClient != nil {
-			_, _ = nutClient.Disconnect()
-		}
+		dc.closeConnections()
 		m.logger.Info("Device poller stopped", "name", device.Name)
 	}()
 
@@ -132,55 +188,12 @@ func (m *Monitor) pollDevice(ctx context.Context, device config.Device) {
 		}
 
 		m.logger.Debug("Polling device", "name", device.Name, "type", device.Type)
-		var status *config.UPSStatus
-		var err error
-
-		switch device.Type {
-		case "apcupsd":
-			if apcClient == nil {
-				m.logger.Debug("Connecting to apcupsd", "name", device.Name, "host", device.Host, "port", device.Port)
-				apcClient, err = ups.Dial("tcp", fmt.Sprintf("%s:%d", device.Host, device.Port))
-				if err == nil {
-					m.logger.Debug("Connected to apcupsd", "name", device.Name)
-				}
-			}
-			if err == nil {
-				status, err = GetApcupsdStatus(apcClient, device)
-			}
-		case "nut":
-			if nutClient == nil {
-				m.logger.Debug("Connecting to NUT", "name", device.Name, "host", device.Host, "port", device.Port)
-				c, connErr := ups.NutConnect(device.Host, device.Port)
-				nutClient = &c
-				err = connErr
-				if err == nil {
-					m.logger.Debug("Connected to NUT", "name", device.Name)
-				}
-			}
-			if err == nil {
-				status, err = GetNutStatus(nutClient, device)
-			}
-		default:
-			err = fmt.Errorf("unsupported device type: %s", device.Type)
-		}
+		status, err := m.pollDeviceOnce(device, dc)
 
 		if err != nil {
 			m.logger.Error("Error polling device", "name", device.Name, "error", err)
-			backoff = minDuration(backoff*2, m.cfg.MaxBackoff)
-			jitter := time.Duration(float64(backoff) * m.cfg.JitterFactor * (rand.Float64()*2 - 1))
-			backoff += jitter
-			if backoff < m.cfg.PollInterval {
-				backoff = m.cfg.PollInterval
-			}
-			// Close failed connections
-			if apcClient != nil {
-				_ = apcClient.Close()
-				apcClient = nil
-			}
-			if nutClient != nil {
-				_, _ = nutClient.Disconnect()
-				nutClient = nil
-			}
+			backoff = m.calculateBackoff(backoff)
+			dc.closeConnections()
 		} else {
 			config.UpdateStatus(device.Name, status)
 			m.logger.Debug("Polled device successfully", "name", device.Name, "type", device.Type, "attrs", len(status.Attributes))

@@ -108,56 +108,38 @@ func TestNutUPS_GetVariables(t *testing.T) {
 // Test variable type conversion logic
 func TestVariableTypeConversion(t *testing.T) {
 	tests := []struct {
-		input    string
-		expected interface{}
-		varType  string
+		input       string
+		expectedType string
 	}{
-		{"123", int64(123), "INTEGER"},
-		{"123.45", 123.45, "FLOAT_64"},
-		{"enabled", true, "BOOLEAN"},
-		{"disabled", false, "BOOLEAN"},
-		{"some_string", "some_string", "STRING"},
+		{"123", "INTEGER"},
+		{"123.45", "FLOAT_64"},
+		{"enabled", "BOOLEAN"},
+		{"disabled", "BOOLEAN"},
+		{"some_string", "STRING"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			// Simulate the type conversion logic from GetVariables
-			var newVar NutVariable
-			newVar.Value = tt.input
-
-			// Test type detection based on input value
-			switch {
-			case tt.input == "enabled":
-				newVar.Value = true
-				newVar.Type = "BOOLEAN"
-			case tt.input == "disabled":
-				newVar.Value = false
-				newVar.Type = "BOOLEAN"
-			case numericPattern.MatchString(tt.input):
-				if strings.Count(tt.input, ".") == 1 {
-					newVar.Type = "FLOAT_64"
-				} else {
-					newVar.Type = "INTEGER"
-				}
-			}
-
-			// Default to STRING
-			if newVar.Type == "" {
-				newVar.Type = "STRING"
-			}
-
-			// Verify the conversion worked as expected
-			switch tt.input {
-			case "enabled", "disabled":
-				if newVar.Type != "BOOLEAN" {
-					t.Errorf("Expected BOOLEAN type for %s, got %s", tt.input, newVar.Type)
-				}
-			case "some_string":
-				if newVar.Type != "STRING" {
-					t.Errorf("Expected STRING type for %s, got %s", tt.input, newVar.Type)
-				}
+			varType := detectVariableType(tt.input)
+			if varType != tt.expectedType {
+				t.Errorf("Expected type %s for input %s, got %s", tt.expectedType, tt.input, varType)
 			}
 		})
 	}
+}
+
+// detectVariableType determines the type of a NUT variable value.
+func detectVariableType(input string) string {
+	switch input {
+	case "enabled", "disabled":
+		return "BOOLEAN"
+	}
+	if numericPattern.MatchString(input) {
+		if strings.Count(input, ".") == 1 {
+			return "FLOAT_64"
+		}
+		return "INTEGER"
+	}
+	return "STRING"
 }
 

@@ -423,6 +423,103 @@ func (s *Server) handleTestDevice(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// wsConn wraps a WebSocket connection with tracking info.
+type wsConn struct {
+	conn   *websocket.Conn
+	remote string
+	reason string
+	done   chan struct{}
+}
+
+// startPingLoop starts the ping/pong keepalive loop.
+func (s *Server) startPingLoop(wc *wsConn) {
+	ticker := time.NewTicker(s.cfg.PingInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-wc.done:
+			return
+		case <-ticker.C:
+			deadline := time.Now().Add(s.cfg.PongWait)
+			if err := wc.conn.WriteControl(websocket.PingMessage, []byte("ping"), deadline); err != nil {
+				s.logger.Warn("WebSocket ping failed", "error", err)
+				wc.reason = "ping_failed"
+				_ = wc.conn.Close()
+				return
+			}
+		}
+	}
+}
+
+// sendInitialStatus sends the initial status to a new WebSocket client.
+func (s *Server) sendInitialStatus(wc *wsConn) error {
+	if err := s.hub.sendLast(wc.conn); err != nil {
+		s.logger.Error("Failed to send cached status", "error", err)
+		wc.reason = "write_initial_failed"
+		return err
+	}
+	if s.hub.last != nil {
+		return nil
+	}
+
+	s.configMu.Lock()
+	devices := make([]config.Device, len(s.appConfig.Devices))
+	copy(devices, s.appConfig.Devices)
+	s.configMu.Unlock()
+
+	payload, err := json.Marshal(config.GetStatusesForDevices(devices))
+	if err != nil {
+		s.logger.Error("Failed to marshal initial status", "error", err)
+		wc.reason = "marshal_failed"
+		return err
+	}
+
+	_ = wc.conn.SetWriteDeadline(time.Now().Add(s.cfg.WriteTimeout))
+	if err := wc.conn.WriteMessage(websocket.TextMessage, payload); err != nil {
+		s.logger.Error("Failed to send initial status", "error", err)
+		wc.reason = "write_initial_failed"
+		return err
+	}
+	_ = wc.conn.SetWriteDeadline(time.Time{})
+	return nil
+}
+
+// handleWSCommand processes a single WebSocket command and returns any error.
+func (s *Server) handleWSCommand(wc *wsConn) error {
+	var cmd config.UPSCommand
+	if err := wc.conn.ReadJSON(&cmd); err != nil {
+		return s.classifyReadError(wc, err)
+	}
+
+	s.logger.Info("WS received command", "remote", wc.remote, "id", cmd.ID, "device", cmd.Device, "command", cmd.Command)
+	result := config.ExecuteCommand(cmd, s.appConfig.Devices)
+	s.logger.Info("WS send command result", "remote", wc.remote, "id", cmd.ID, "device", cmd.Device, "success", result.Success)
+
+	_ = wc.conn.SetWriteDeadline(time.Now().Add(s.cfg.WriteTimeout))
+	if err := wc.conn.WriteJSON(result); err != nil {
+		s.logger.Error("Failed to send command result", "error", err)
+		wc.reason = "write_failed"
+		return err
+	}
+	_ = wc.conn.SetWriteDeadline(time.Time{})
+	return nil
+}
+
+// classifyReadError determines the disconnect reason from a read error.
+func (s *Server) classifyReadError(wc *wsConn, err error) error {
+	if websocket.IsCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) || errors.Is(err, net.ErrClosed) {
+		wc.reason = "client_close"
+		return err
+	}
+	if netErr, ok := err.(interface{ Timeout() bool }); ok && netErr.Timeout() {
+		wc.reason = "read_timeout"
+		return err
+	}
+	s.logger.Error("Failed to read command", "error", err)
+	wc.reason = "read_failed"
+	return err
+}
+
 func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	s.logger.Info("WebSocket upgrade attempt", "remote", r.RemoteAddr, "origin", r.Header.Get("Origin"))
 	conn, err := s.hub.upgrader.Upgrade(w, r, nil)
@@ -430,6 +527,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		s.logger.Error("WebSocket upgrade failed", "remote", r.RemoteAddr, "origin", r.Header.Get("Origin"), "error", err)
 		return
 	}
+
 	s.logger.Info("WebSocket upgrade succeeded", "remote", r.RemoteAddr, "origin", r.Header.Get("Origin"))
 	conn.SetReadLimit(s.cfg.MaxMessageSize)
 	_ = conn.SetReadDeadline(time.Now().Add(s.cfg.ReadTimeout))
@@ -437,85 +535,28 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		_ = conn.SetReadDeadline(time.Now().Add(s.cfg.ReadTimeout))
 		return nil
 	})
-	reason := "normal"
+
+	wc := &wsConn{conn: conn, remote: r.RemoteAddr, reason: "normal", done: make(chan struct{})}
 	count := atomic.AddInt64(&s.activeWS, 1)
 	s.logger.Info("WebSocket client connected", "remote", r.RemoteAddr, "active", count)
 	s.hub.add(conn)
-	done := make(chan struct{})
-	go func() {
-		ticker := time.NewTicker(s.cfg.PingInterval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-done:
-				return
-			case <-ticker.C:
-				deadline := time.Now().Add(s.cfg.PongWait)
-				if err := conn.WriteControl(websocket.PingMessage, []byte("ping"), deadline); err != nil {
-					s.logger.Warn("WebSocket ping failed", "error", err)
-					reason = "ping_failed"
-					_ = conn.Close()
-					return
-				}
-			}
-		}
-	}()
+
+	go s.startPingLoop(wc)
 	defer func() {
-		close(done)
+		close(wc.done)
 		s.hub.remove(conn)
 		remaining := atomic.AddInt64(&s.activeWS, -1)
-		s.logger.Info("WebSocket client disconnected", "remote", r.RemoteAddr, "reason", reason, "active", remaining)
+		s.logger.Info("WebSocket client disconnected", "remote", r.RemoteAddr, "reason", wc.reason, "active", remaining)
 	}()
-	// Send initial status
-	if err := s.hub.sendLast(conn); err != nil {
-		s.logger.Error("Failed to send cached status", "error", err)
-		reason = "write_initial_failed"
+
+	if err := s.sendInitialStatus(wc); err != nil {
 		return
 	}
-	if s.hub.last == nil {
-		s.configMu.Lock()
-		devices := make([]config.Device, len(s.appConfig.Devices))
-		copy(devices, s.appConfig.Devices)
-		s.configMu.Unlock()
-		payload, marshalErr := json.Marshal(config.GetStatusesForDevices(devices))
-		if marshalErr != nil {
-			s.logger.Error("Failed to marshal initial status", "error", marshalErr)
-			reason = "marshal_failed"
-			return
-		}
-		_ = conn.SetWriteDeadline(time.Now().Add(s.cfg.WriteTimeout))
-		if writeErr := conn.WriteMessage(websocket.TextMessage, payload); writeErr != nil {
-			s.logger.Error("Failed to send initial status", "error", writeErr)
-			reason = "write_initial_failed"
-			return
-		}
-		_ = conn.SetWriteDeadline(time.Time{})
-	}
+
 	for {
-		var cmd config.UPSCommand
-		if err := conn.ReadJSON(&cmd); err != nil {
-			if websocket.IsCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) || errors.Is(err, net.ErrClosed) {
-				reason = "client_close"
-				return
-			}
-			if netErr, ok := err.(interface{ Timeout() bool }); ok && netErr.Timeout() {
-				reason = "read_timeout"
-				return
-			}
-			s.logger.Error("Failed to read command", "error", err)
-			reason = "read_failed"
+		if err := s.handleWSCommand(wc); err != nil {
 			return
 		}
-		s.logger.Info("WS received command", "remote", r.RemoteAddr, "id", cmd.ID, "device", cmd.Device, "command", cmd.Command)
-		result := config.ExecuteCommand(cmd, s.appConfig.Devices)
-		s.logger.Info("WS send command result", "remote", r.RemoteAddr, "id", cmd.ID, "device", cmd.Device, "success", result.Success)
-		_ = conn.SetWriteDeadline(time.Now().Add(s.cfg.WriteTimeout))
-		if err := conn.WriteJSON(result); err != nil {
-			s.logger.Error("Failed to send command result", "error", err)
-			reason = "write_failed"
-			return
-		}
-		_ = conn.SetWriteDeadline(time.Time{})
 	}
 }
 

@@ -408,6 +408,39 @@ func executeApcupsdCommand(cmd UPSCommand, device Device) CommandResult {
 	return result
 }
 
+// nutCommandMap maps unified command names to NUT command format strings.
+// Format strings use %s placeholder for the device name.
+var nutCommandMap = map[string]string{
+	"beeper.disable":    "SET %s ups.beeper.status disabled",
+	"beeper.enable":     "SET %s ups.beeper.status enabled",
+	"beeper.mute":       "SET %s ups.beeper.status muted",
+	"test.battery.start": "INSTCMD %s test.battery.start",
+	"test.battery.stop":  "INSTCMD %s test.battery.stop",
+	"calibrate.start":    "INSTCMD %s calibrate.start",
+	"calibrate.stop":     "INSTCMD %s calibrate.stop",
+	"load.off":           "INSTCMD %s load.off",
+	"load.on":            "INSTCMD %s load.on",
+	"shutdown.return":    "INSTCMD %s shutdown.return",
+	"shutdown.stayoff":   "INSTCMD %s shutdown.stayoff",
+}
+
+// connectAndAuthNut establishes a NUT connection and authenticates if needed.
+func connectAndAuthNut(device Device) (*ups.NutClient, error) {
+	client, err := ups.NutConnect(device.Host, device.Port)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to NUT server: %w", err)
+	}
+
+	if device.Username != "" {
+		if _, err = client.Authenticate(device.Username, device.Password); err != nil {
+			_, _ = client.Disconnect()
+			return nil, fmt.Errorf("authentication failed: %w", err)
+		}
+	}
+
+	return &client, nil
+}
+
 func executeNutCommand(cmd UPSCommand, device Device) CommandResult {
 	result := CommandResult{
 		ID:      cmd.ID,
@@ -415,54 +448,22 @@ func executeNutCommand(cmd UPSCommand, device Device) CommandResult {
 		Message: "Command execution failed",
 	}
 
-	// For NUT, we can use the existing client to send commands
-	client, err := ups.NutConnect(device.Host, device.Port)
-	if err != nil {
-		result.Message = fmt.Sprintf("Failed to connect to NUT server: %v", err)
-		return result
-	}
-	defer func() { _, _ = client.Disconnect() }()
-
-	// Authenticate if credentials provided
-	if device.Username != "" {
-		_, err = client.Authenticate(device.Username, device.Password)
-		if err != nil {
-			result.Message = fmt.Sprintf("Authentication failed: %v", err)
-			return result
-		}
-	}
-
-	// Map unified commands to NUT commands
-	var nutCommand string
-	switch cmd.Command {
-	case "beeper.disable":
-		nutCommand = fmt.Sprintf("SET %s ups.beeper.status disabled", device.Name)
-	case "beeper.enable":
-		nutCommand = fmt.Sprintf("SET %s ups.beeper.status enabled", device.Name)
-	case "beeper.mute":
-		nutCommand = fmt.Sprintf("SET %s ups.beeper.status muted", device.Name)
-	case "test.battery.start":
-		nutCommand = fmt.Sprintf("INSTCMD %s test.battery.start", device.Name)
-	case "test.battery.stop":
-		nutCommand = fmt.Sprintf("INSTCMD %s test.battery.stop", device.Name)
-	case "calibrate.start":
-		nutCommand = fmt.Sprintf("INSTCMD %s calibrate.start", device.Name)
-	case "calibrate.stop":
-		nutCommand = fmt.Sprintf("INSTCMD %s calibrate.stop", device.Name)
-	case "load.off":
-		nutCommand = fmt.Sprintf("INSTCMD %s load.off", device.Name)
-	case "load.on":
-		nutCommand = fmt.Sprintf("INSTCMD %s load.on", device.Name)
-	case "shutdown.return":
-		nutCommand = fmt.Sprintf("INSTCMD %s shutdown.return", device.Name)
-	case "shutdown.stayoff":
-		nutCommand = fmt.Sprintf("INSTCMD %s shutdown.stayoff", device.Name)
-	default:
+	// Check if command is supported
+	formatStr, ok := nutCommandMap[cmd.Command]
+	if !ok {
 		result.Message = fmt.Sprintf("Command '%s' not supported for NUT", cmd.Command)
 		return result
 	}
 
+	client, err := connectAndAuthNut(device)
+	if err != nil {
+		result.Message = err.Error()
+		return result
+	}
+	defer func() { _, _ = client.Disconnect() }()
+
 	// Execute the command
+	nutCommand := fmt.Sprintf(formatStr, device.Name)
 	response, err := client.SendCommand(nutCommand)
 	if err != nil {
 		result.Message = fmt.Sprintf("Command execution failed: %v", err)
