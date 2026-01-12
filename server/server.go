@@ -310,7 +310,7 @@ func (s *Server) handleAddDevice(ctx context.Context, w http.ResponseWriter, r *
 			device.Port = 3493
 		default:
 			w.WriteHeader(http.StatusBadRequest)
-			w.Write([]byte(`{"error":"unsupported device type"}`))
+			_, _ = w.Write([]byte(`{"error":"unsupported device type"}`))
 			return
 		}
 	}
@@ -319,7 +319,7 @@ func (s *Server) handleAddDevice(ctx context.Context, w http.ResponseWriter, r *
 	if err != nil {
 		s.logger.Error("Device validation failed", "name", device.Name, "type", device.Type, "error", err)
 		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte(`{"error":"failed to connect to device"}`))
+		_, _ = w.Write([]byte(`{"error":"failed to connect to device"}`))
 		return
 	}
 	s.configMu.Lock()
@@ -328,7 +328,7 @@ func (s *Server) handleAddDevice(ctx context.Context, w http.ResponseWriter, r *
 		s.configMu.Unlock()
 		s.logger.Error("Failed to save config", "error", err)
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(`{"error":"failed to save config"}`))
+		_, _ = w.Write([]byte(`{"error":"failed to save config"}`))
 		return
 	}
 	s.configMu.Unlock()
@@ -417,7 +417,7 @@ func (s *Server) handleTestDevice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"success":    true,
 		"attributes": status.Attributes,
 	})
