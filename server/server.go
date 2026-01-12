@@ -369,7 +369,7 @@ func (s *Server) handleDeleteDevice(w http.ResponseWriter, r *http.Request) {
 	}
 	config.DeleteStatus(name)
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{"status":"deleted"}`))
+	_, _ = w.Write([]byte(`{"status":"deleted"}`))
 }
 
 func (s *Server) handleTestDevice(w http.ResponseWriter, r *http.Request) {
