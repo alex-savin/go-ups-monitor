@@ -1,6 +1,6 @@
 module github.com/alex-savin/go-ups-monitor
 
-go 1.26.0
+go 1.26
 
 require (
 	github.com/gorilla/websocket v1.5.3
